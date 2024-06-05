@@ -23,6 +23,59 @@ async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
+
+    const userCollection = client.db('PetConnectDB').collection('users');
+    const petCollection = client.db('PetConnectDB').collection('pets');
+
+    //Users
+    app.get('/users', async (req, res) => {
+      const result = await userCollection.find().toArray();
+      res.send(result);
+    });
+
+    app.post('/users', async (req, res) => {
+      const user = req.body;
+      // const query = { email: user.email }
+      // const existingUser = await userCollection.findOne(query);
+      // if(existingUser){
+      //   return res.send({ message: 'user already exists', insertedId: null })
+      // }
+      const result = await userCollection.insertOne(user);
+      res.send(result);
+    });
+
+
+    //Pets
+    app.post('/api/pets', async (req, res) => {
+      const { name, age, category, location, shortDescription, longDescription, imageUrl, owner, adopted, addedAt } = req.body;
+      try {
+        const result = await client.db('PetConnectDB').collection('pets').insertOne({
+          name, age, category, location, shortDescription, longDescription, imageUrl, owner, adopted, addedAt
+        });
+        res.status(201).send(result);
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to add pet' });
+      }
+    });
+
+    // Get all pets
+    // Get all pets with pagination
+    app.get('/api/pets', async (req, res) => {
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      const skip = (page - 1) * limit;
+
+      try {
+        const pets = await petCollection.find({ adopted: false }).sort({ addedAt: -1 }).skip(skip).limit(limit).toArray();
+        res.send(pets);
+      } catch (error) {
+        res.status(500).send({ message: 'Error fetching pets', error });
+      }
+    });
+
+
+
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
@@ -34,10 +87,10 @@ async function run() {
 run().catch(console.dir);
 
 
-app.get('/', (req,res)=>{
-    res.send('server running');
+app.get('/', (req, res) => {
+  res.send('server running');
 });
 
-app.listen(port, ()=>{
-    console.log(`server is running on port ${port}`);
+app.listen(port, () => {
+  console.log(`server is running on port ${port}`);
 });
