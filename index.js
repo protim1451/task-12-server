@@ -94,6 +94,54 @@ async function run() {
       }
     });
 
+    app.delete('/api/pets/:id', async (req, res) => {
+      const { id } = req.params;
+      try {
+        const result = await petCollection.deleteOne({ _id: new ObjectId(id) });
+        if (result.deletedCount === 1) {
+          res.status(200).send({ message: 'Pet deleted successfully' });
+        } else {
+          res.status(404).send({ message: 'Pet not found' });
+        }
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to delete pet' });
+      }
+    });
+
+    app.put('/api/pets/:id', async (req, res) => {
+      const { id } = req.params;
+      const updatedData = req.body;
+      try {
+        const result = await petCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updatedData }
+        );
+        if (result.matchedCount === 1) {
+          res.status(200).send({ message: 'Pet updated successfully' });
+        } else {
+          res.status(404).send({ message: 'Pet not found' });
+        }
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to update pet' });
+      }
+    });
+
+    app.patch('/api/pets/:id/adopt', async (req, res) => {
+      const { id } = req.params;
+      try {
+        const result = await petCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { adopted: true } }
+        );
+        if (result.matchedCount === 1) {
+          res.status(200).send({ message: 'Pet marked as adopted' });
+        } else {
+          res.status(404).send({ message: 'Pet not found' });
+        }
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to mark pet as adopted' });
+      }
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
