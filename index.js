@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 const cors = require('cors');
 require('dotenv').config();
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const port = process.env.PORT || 3000;
 
 app.use(cors());
@@ -26,6 +26,7 @@ async function run() {
 
     const userCollection = client.db('PetConnectDB').collection('users');
     const petCollection = client.db('PetConnectDB').collection('pets');
+    const adoptionCollection = client.db('PetConnectDB').collection('adoptions');
 
     //Users
     app.get('/users', async (req, res) => {
@@ -73,7 +74,25 @@ async function run() {
       }
     });
 
+    app.post('/api/adoptions', async (req, res) => {
+      const adoptionData = req.body;
+      try {
+        const result = await adoptionCollection.insertOne(adoptionData);
+        res.status(201).send(result);
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to submit adoption request' });
+      }
+    });
 
+    app.get('/api/pets/:id', async (req, res) => {
+      const { id } = req.params;
+      try {
+        const pet = await petCollection.findOne({ _id: new ObjectId(id) });
+        res.status(200).send(pet);
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to fetch pet details' });
+      }
+    });
 
 
     // Send a ping to confirm a successful connection
