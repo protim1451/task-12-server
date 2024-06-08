@@ -38,6 +38,7 @@ async function run() {
       res.send({ token });
     });
 
+
     const verifyToken = (req, res, next) => {
       console.log('inside verify token', req.headers.authorization);
       if (!req.headers.authorization) {
@@ -64,7 +65,6 @@ async function run() {
       }
       next();
     }
-
     // Users
     app.get('/users', async (req, res) => {
       const result = await userCollection.find().toArray();
@@ -82,9 +82,19 @@ async function run() {
       res.send(result);
     });
 
-    app.patch('/users/admin/:id', async(req, res)=>{
+    app.get('/users/admin/:email', verifyToken, async (req, res) => {
+      try {
+        const user = await User.findOne({ email: req.params.email });
+        if (!user) return res.sendStatus(404);
+        res.json({ admin: user.role === 'admin' });
+      } catch (error) {
+        res.status(500).send(error.message);
+      }
+    });
+
+    app.patch('/users/admin/:id', async (req, res) => {
       const id = req.params.id;
-      const filter = {_id: new ObjectId(id)};
+      const filter = { _id: new ObjectId(id) };
       const updatedDoc = {
         $set: {
           role: 'admin'
@@ -94,9 +104,9 @@ async function run() {
       res.send(result);
     });
 
-    app.delete('/users/:id', async(req,res)=>{
+    app.delete('/users/:id', async (req, res) => {
       const id = req.params.id;
-      const query = {_id: new ObjectId(id)}
+      const query = { _id: new ObjectId(id) }
       const result = await userCollection.deleteOne(query);
       res.send(result);
     });
@@ -114,22 +124,22 @@ async function run() {
       }
     });
 
-    
+
     // Get all pets with pagination
     app.get('/api/pets', async (req, res) => {
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 10;
       const skip = (page - 1) * limit;
-      const owner = req.query.owner; 
-      let filter = { adopted: false }; 
+      const owner = req.query.owner;
+      let filter = { adopted: false };
 
-      
+
       if (owner) {
         filter.owner = owner;
       }
 
       try {
-        // Filter pets based on the provided filter
+
         const pets = await petCollection
           .find(filter)
           .sort({ addedAt: -1 })
@@ -244,15 +254,17 @@ async function run() {
       }
     });
 
-
-    // Get a single donation campaign by ID
     app.get('/api/donation-campaigns/:id', async (req, res) => {
       const { id } = req.params;
       try {
         const campaign = await donationCampaignCollection.findOne({ _id: new ObjectId(id) });
-        res.status(200).send(campaign);
+        if (campaign) {
+          res.status(200).send(campaign);
+        } else {
+          res.status(404).send({ message: 'Campaign not found' });
+        }
       } catch (error) {
-        res.status(500).send({ error: 'Failed to fetch donation campaign details' });
+        res.status(500).send({ error: 'Failed to fetch campaign' });
       }
     });
 
@@ -292,6 +304,33 @@ async function run() {
       }
     });
 
+    // Get adoption requests for user's pets
+    app.get('/api/adoption-requests', verifyToken, async (req, res) => {
+      const email = req.user.email; // Use req.user set by the middleware
+      try {
+        const userPets = await petCollection.find({ ownerEmail: email }).toArray();
+        const petIds = userPets.map(pet => pet._id);
+        const adoptionRequests = await adoptionCollection.find({ petId: { $in: petIds } }).toArray();
+        res.status(200).send(adoptionRequests);
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to fetch adoption requests' });
+      }
+    });
+
+    // Update adoption request status
+    app.patch('/api/adoption-requests/:id', verifyToken, async (req, res) => {
+      const { id } = req.params;
+      const { status } = req.body; // 'accepted' or 'rejected'
+      try {
+        await adoptionCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status } }
+        );
+        res.status(200).send({ message: 'Adoption request updated' });
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to update adoption request' });
+      }
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
