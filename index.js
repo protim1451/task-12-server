@@ -40,20 +40,18 @@ async function run() {
 
 
     const verifyToken = (req, res, next) => {
-      console.log('inside verify token', req.headers.authorization);
       if (!req.headers.authorization) {
-        return res.status(401).send({ message: 'unauthorize access' });
+          return res.status(401).send({ message: 'unauthorized access' });
       }
       const token = req.headers.authorization.split(' ')[1];
       jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-        if (err) {
-          return res.status(401).send({ message: 'unauthorize access' });
-        }
-        req.decoded = decoded;
-        next();
-      })
-      //next();
-    }
+          if (err) {
+              return res.status(401).send({ message: 'unauthorized access' });
+          }
+          req.decoded = decoded;
+          next();
+      });
+  };
 
     const verifyAdmin = async (req, res, next) => {
       const email = req.decoded.email;
@@ -82,16 +80,16 @@ async function run() {
       res.send(result);
     });
 
-    app.get('/users/admin/:email', verifyToken, async (req, res) => {
+    app.get('/users/admin/:email', verifyToken, verifyAdmin, async (req, res) => {
       try {
-        const user = await User.findOne({ email: req.params.email });
-        if (!user) return res.sendStatus(404);
-        res.json({ admin: user.role === 'admin' });
+          const user = await userCollection.findOne({ email: req.params.email });
+          if (!user) return res.sendStatus(404);
+          res.json({ admin: user.role === 'admin' });
       } catch (error) {
-        res.status(500).send(error.message);
+          res.status(500).send(error.message);
       }
-    });
-
+  });
+  
     app.patch('/users/admin/:id', async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
@@ -132,8 +130,6 @@ async function run() {
       const skip = (page - 1) * limit;
       const owner = req.query.owner;
       let filter = { adopted: false };
-
-
       if (owner) {
         filter.owner = owner;
       }
@@ -301,6 +297,20 @@ async function run() {
         }
       } catch (error) {
         res.status(500).send({ error: 'Failed to update campaign' });
+      }
+    });
+
+    app.delete('/api/donation-campaigns/:id', async (req, res) => {
+      const { id } = req.params;
+      try {
+        const result = await donationCampaignCollection.deleteOne({ _id: new ObjectId(id) });
+        if (result.deletedCount === 1) {
+          res.status(200).send({ message: 'Pet deleted successfully' });
+        } else {
+          res.status(404).send({ message: 'Pet not found' });
+        }
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to delete pet' });
       }
     });
 
