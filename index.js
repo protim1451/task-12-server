@@ -2,17 +2,26 @@ const express = require('express');
 const app = express();
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 require('dotenv').config();
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const port = process.env.PORT || 3000;
 
-app.use(cors());
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "https://petconnect-1dace.web.app",
+      "https://petconnect-1dace.firebaseapp.com",
+    ]
+  })
+);
 app.use(express.json());
+
+
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.edgm8kl.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -24,12 +33,13 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server
-    await client.connect();
+    //await client.connect();
 
     const userCollection = client.db('PetConnectDB').collection('users');
     const petCollection = client.db('PetConnectDB').collection('pets');
     const adoptionCollection = client.db('PetConnectDB').collection('adoptions');
     const donationCampaignCollection = client.db('PetConnectDB').collection('donationCampaigns');
+    const paymentCollection = client.db('PetConnectDB').collection('payment');
 
     app.post('/jwt', async (req, res) => {
       const user = req.body;
@@ -232,7 +242,7 @@ async function run() {
       }
     });
 
-    // Get all donation campaigns with pagination
+
     // Get all donation campaigns with pagination for a specific owner
     app.get('/api/donation-campaigns', async (req, res) => {
       const page = parseInt(req.query.page) || 1;
@@ -358,54 +368,78 @@ async function run() {
       }
     });
 
-   //Payment 
-   app.post('/create-payment-intent', async(req,res)=>{
-    const {price} = req.body;
-    const amount = parseInt(price * 100);
-    console.log('inside intent',amount);
+    // Payment endpoints
+    app.post('/create-payment-intent', async (req, res) => {
+      const { amount } = req.body;
+      console.log('Received amount:', amount);
+      const amountInCents = parseInt(amount * 100);
+      console.log('Amount in cents:', amountInCents);
 
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: amount,
-      currency: 'usd',
-      payment_method_types: ['card']
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: amountInCents,
+          currency: 'usd',
+          payment_method_types: ['card']
+        });
+
+        res.send({
+          clientSecret: paymentIntent.client_secret
+        });
+      } catch (error) {
+        console.error('Error creating payment intent:', error);
+        res.status(500).send({ error: 'Failed to create payment intent' });
+      }
     });
 
-    res.send({
-      clientSecret: paymentIntent.client_secret
-    })
-  });
+    app.post('/payments', async (req, res) => {
+      const payment = req.body;
+      console.log('Received payment:', payment);
 
-  //payment related api
-  app.get('/payments/:email', verifyToken, async (req, res) => {
-    const query = { email: req.params.email }
-    if (req.params.email !== req.decoded.email) {
-      return res.status(403).send({ message: 'forbidden access' });
-    }
-    const result = await paymentCollection.find(query).toArray();
-    res.send(result);
-  });
-
-  app.post('/payments', async (req, res) => {
-    const payment = req.body;
-    const paymentResult = await paymentCollection.insertOne(payment);
-
-    //  carefully delete each item from the cart
-    console.log('payment info', payment);
-    const query = {
-      _id: {
-        $in: payment.cartIds.map(id => new ObjectId(id))
+      try {
+        const paymentResult = await paymentCollection.insertOne(payment);
+        res.send({ paymentResult });
+      } catch (error) {
+        console.error('Error processing payment:', error);
+        res.status(500).send({ error: 'Failed to process payment' });
       }
-    };
+    });
 
-    const deleteResult = await cartCollection.deleteMany(query);
+    app.get('/payments/:email', async (req, res) => {
+      const { email } = req.params;
+      try {
+        const donations = await paymentCollection.find({ email }).toArray();
+        res.send(donations);
+      } catch (error) {
+        console.error('Error fetching donations:', error);
+        res.status(500).send({ error: 'Failed to fetch donations' });
+      }
+    });
 
-    res.send({ paymentResult, deleteResult });
-  });
+    app.get('/user-donations', async (req, res) => {
+      const { email } = req.query;
+      try {
+        const donations = await paymentCollection.find({ email }).toArray();
+        res.json(donations);
+      } catch (error) {
+        console.error('Error fetching donations:', error);
+        res.status(500).send({ error: 'Failed to fetch donations' });
+      }
+    });
+
+    app.get('/api/donations', async (req, res) => {
+      try {
+        const donations = await paymentCollection.find({}).toArray(); 
+        res.json(donations);
+      } catch (error) {
+        console.error('Error fetching donations:', error);
+        res.status(500).send({ error: 'Failed to fetch donations' });
+      }
+    });
 
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    //await client.db("admin").command({ ping: 1 });
+    //console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Ensures that the client will close when you finish/error
     //await client.close();
