@@ -2,6 +2,7 @@ const express = require('express');
 const app = express();
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 require('dotenv').config();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const port = process.env.PORT || 3000;
@@ -41,17 +42,17 @@ async function run() {
 
     const verifyToken = (req, res, next) => {
       if (!req.headers.authorization) {
-          return res.status(401).send({ message: 'unauthorized access' });
+        return res.status(401).send({ message: 'unauthorized access' });
       }
       const token = req.headers.authorization.split(' ')[1];
       jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-          if (err) {
-              return res.status(401).send({ message: 'unauthorized access' });
-          }
-          req.decoded = decoded;
-          next();
+        if (err) {
+          return res.status(401).send({ message: 'unauthorized access' });
+        }
+        req.decoded = decoded;
+        next();
       });
-  };
+    };
 
     const verifyAdmin = async (req, res, next) => {
       const email = req.decoded.email;
@@ -80,16 +81,16 @@ async function run() {
       res.send(result);
     });
 
-    app.get('/users/admin/:email', verifyToken, verifyAdmin, async (req, res) => {
+    app.get('/users/admin/:email', async (req, res) => {
       try {
-          const user = await userCollection.findOne({ email: req.params.email });
-          if (!user) return res.sendStatus(404);
-          res.json({ admin: user.role === 'admin' });
+        const user = await userCollection.findOne({ email: req.params.email });
+        if (!user) return res.sendStatus(404);
+        res.json({ admin: user.role === 'admin' });
       } catch (error) {
-          res.status(500).send(error.message);
+        res.status(500).send(error.message);
       }
-  });
-  
+    });
+
     app.patch('/users/admin/:id', async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
@@ -341,6 +342,66 @@ async function run() {
         res.status(500).send({ error: 'Failed to update adoption request' });
       }
     });
+
+    // Get recommended donation campaigns excluding the current campaign
+    app.get('/api/donation-campaigns/recommended', async (req, res) => {
+      const excludeId = req.query.exclude;
+      try {
+        const campaigns = await donationCampaignCollection
+          .find({ _id: { $ne: new ObjectId(excludeId) } })
+          .limit(3)
+          .toArray();
+        res.status(200).send(campaigns);
+      } catch (error) {
+        console.error('Error fetching recommended campaigns:', error);
+        res.status(500).send({ error: 'Failed to fetch recommended campaigns' });
+      }
+    });
+
+   //Payment 
+   app.post('/create-payment-intent', async(req,res)=>{
+    const {price} = req.body;
+    const amount = parseInt(price * 100);
+    console.log('inside intent',amount);
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amount,
+      currency: 'usd',
+      payment_method_types: ['card']
+    });
+
+    res.send({
+      clientSecret: paymentIntent.client_secret
+    })
+  });
+
+  //payment related api
+  app.get('/payments/:email', verifyToken, async (req, res) => {
+    const query = { email: req.params.email }
+    if (req.params.email !== req.decoded.email) {
+      return res.status(403).send({ message: 'forbidden access' });
+    }
+    const result = await paymentCollection.find(query).toArray();
+    res.send(result);
+  });
+
+  app.post('/payments', async (req, res) => {
+    const payment = req.body;
+    const paymentResult = await paymentCollection.insertOne(payment);
+
+    //  carefully delete each item from the cart
+    console.log('payment info', payment);
+    const query = {
+      _id: {
+        $in: payment.cartIds.map(id => new ObjectId(id))
+      }
+    };
+
+    const deleteResult = await cartCollection.deleteMany(query);
+
+    res.send({ paymentResult, deleteResult });
+  });
+
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
